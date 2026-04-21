@@ -1,0 +1,6 @@
+{
+  "name": "Scan To PDF",
+  "description": "Mobile-ready app to scan images (JPG, PNG, GIF) and convert them into high-quality PDF documents.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}
