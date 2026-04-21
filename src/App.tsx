@@ -26,7 +26,18 @@ interface ScannedPage {
   file: File;
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Create a lazy-initialized AI instance
+let aiInstance: GoogleGenAI | null = null;
+const getAI = () => {
+  if (!aiInstance) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error('GEMINI_API_KEY is not configured');
+    }
+    aiInstance = new GoogleGenAI({ apiKey: key });
+  }
+  return aiInstance;
+};
 
 export default function App() {
   const [pages, setPages] = useState<ScannedPage[]>([]);
@@ -117,6 +128,7 @@ export default function App() {
       const base64Data = await fileToBase64(firstPage.file);
       const base64String = base64Data.split(',')[1];
 
+      const ai = getAI();
       const result = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [
@@ -166,11 +178,11 @@ export default function App() {
       <div className="mesh-bg" />
       {/* Header */}
       <header className="sticky top-0 z-50 glass border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <div className="frosted-gradient p-2 rounded-xl">
             <FileText className="text-white w-5 h-5" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Scan2PDF</h1>
+          <h1 className="text-xl font-bold tracking-tight text-white uppercase tracking-widest">Scan2PDF</h1>
         </div>
         {pages.length > 0 && (
           <button 

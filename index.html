@@ -4,6 +4,47 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Aggressive shim for read-only fetch
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          if (originalFetch) {
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return originalFetch; },
+              set: function(v) { 
+                console.warn('Prevented library from overwriting window.fetch');
+                return true; 
+              },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          console.warn('Could not shim window.fetch:', e);
+        }
+
+        // Global/Self shims
+        if (typeof window !== 'undefined') {
+          const handler = {
+            get(target, prop) {
+              if (prop === 'global' || prop === 'self' || prop === 'window') return proxy;
+              const val = target[prop];
+              return (typeof val === 'function' && !val.prototype) ? val.bind(target) : val;
+            },
+            set(target, prop, value) {
+              if (prop === 'fetch') return true;
+              try { target[prop] = value; } catch (e) {}
+              return true;
+            }
+          };
+          const proxy = new Proxy(window, handler);
+          window.global = proxy;
+          // Note: we can't redefine window or self as they are often read-only too,
+          // but defining 'global' helps most modern libraries.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
