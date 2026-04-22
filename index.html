@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script>
       // Aggressive shim for read-only fetch
       (function() {
@@ -40,8 +41,6 @@
           };
           const proxy = new Proxy(window, handler);
           window.global = proxy;
-          // Note: we can't redefine window or self as they are often read-only too,
-          // but defining 'global' helps most modern libraries.
         }
       })();
     </script>

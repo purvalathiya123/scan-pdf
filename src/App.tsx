@@ -58,9 +58,60 @@ export default function App() {
     return localStorage.getItem('is_pro_member') === 'true';
   });
   const [showPaywall, setShowPaywall] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePayment = async (plan: 'monthly' | 'yearly') => {
+    const amount = plan === 'monthly' ? 49900 : 399900; // in paise (e.g., ₹499 and ₹3999)
+    const currency = 'INR';
+    const razorpayKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID;
+
+    if (!razorpayKey) {
+      setError("Payment gateway not configured. Please add VITE_RAZORPAY_KEY_ID to environment variables.");
+      return;
+    }
+
+    setIsProcessingPayment(true);
+
+    const options = {
+      key: razorpayKey,
+      amount: amount,
+      currency: currency,
+      name: "ScanMaster Pro",
+      description: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Subscription`,
+      handler: function (response: any) {
+        if (response.razorpay_payment_id) {
+          setIsPro(true);
+          setShowPaywall(false);
+          setError(null);
+        }
+      },
+      prefill: {
+        name: "User",
+        email: "user@example.com",
+      },
+      theme: {
+        color: "#6366f1",
+      },
+      modal: {
+        ondismiss: function() {
+          setIsProcessingPayment(false);
+        }
+      }
+    };
+
+    try {
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error("Razorpay load error:", err);
+      setError("Failed to initialize payment. Please try again.");
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('scan_usage_count', usageCount.toString());
@@ -513,18 +564,20 @@ export default function App() {
                 
                 <div className="space-y-4 mb-8">
                   <button 
-                    onClick={() => { setIsPro(true); setShowPaywall(false); }}
-                    className="w-full bg-white text-indigo-900 py-4 rounded-2xl font-black text-lg hover:bg-slate-100 transition-colors flex justify-between px-6"
+                    onClick={() => handlePayment('yearly')}
+                    disabled={isProcessingPayment}
+                    className="w-full bg-white text-indigo-900 py-4 rounded-2xl font-black text-lg hover:bg-slate-100 transition-colors flex justify-between px-6 disabled:opacity-50"
                   >
-                    <span>Yearly</span>
-                    <span>$49.99/yr</span>
+                    <span>{isProcessingPayment ? 'Processing...' : 'Yearly'}</span>
+                    <span>₹3,999/yr</span>
                   </button>
                   <button 
-                    onClick={() => { setIsPro(true); setShowPaywall(false); }}
-                    className="w-full glass border border-white/20 text-white py-4 rounded-2xl font-black text-lg hover:bg-white/5 transition-colors flex justify-between px-6"
+                    onClick={() => handlePayment('monthly')}
+                    disabled={isProcessingPayment}
+                    className="w-full glass border border-white/20 text-white py-4 rounded-2xl font-black text-lg hover:bg-white/5 transition-colors flex justify-between px-6 disabled:opacity-50"
                   >
-                    <span>Monthly</span>
-                    <span>$5.99/mo</span>
+                    <span>{isProcessingPayment ? 'Processing...' : 'Monthly'}</span>
+                    <span>₹499/mo</span>
                   </button>
                 </div>
                 <p className="text-slate-500 text-[10px] uppercase font-bold tracking-[0.2em]">Start your 7-day free trial</p>
