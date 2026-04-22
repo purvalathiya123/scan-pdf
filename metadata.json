@@ -1,6 +1,6 @@
 {
-  "name": "Scan To PDF",
-  "description": "Mobile-ready app to scan images (JPG, PNG, GIF) and convert them into high-quality PDF documents.",
+  "name": "ScanMaster Pro",
+  "description": "All-in-one vision utility: Scan to PDF, AI text extraction, object counting, auto-summing calculations, and dimensional measurements.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": []
 }

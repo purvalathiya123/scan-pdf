@@ -15,7 +15,16 @@ import {
   Loader2, 
   CheckCircle2,
   AlertCircle,
-  Brain
+  Brain,
+  Menu,
+  X,
+  CreditCard,
+  History,
+  LayoutGrid,
+  Calculator,
+  Type,
+  Box,
+  Ruler
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -26,16 +35,10 @@ interface ScannedPage {
   file: File;
 }
 
-// Create a lazy-initialized AI instance
-let aiInstance: GoogleGenAI | null = null;
+type ToolMode = 'pdf' | 'sum' | 'text' | 'count' | 'measure';
+
+const aiInstance = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const getAI = () => {
-  if (!aiInstance) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      throw new Error('GEMINI_API_KEY is not configured');
-    }
-    aiInstance = new GoogleGenAI({ apiKey: key });
-  }
   return aiInstance;
 };
 
@@ -45,10 +48,39 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentTool, setCurrentTool] = useState<ToolMode>('pdf');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [usageCount, setUsageCount] = useState<number>(() => {
+    const saved = localStorage.getItem('scan_usage_count');
+    return saved ? parseInt(saved, 10) : 0;
+  });
+  const [isPro, setIsPro] = useState<boolean>(() => {
+    return localStorage.getItem('is_pro_member') === 'true';
+  });
+  const [showPaywall, setShowPaywall] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    localStorage.setItem('scan_usage_count', usageCount.toString());
+  }, [usageCount]);
+
+  useEffect(() => {
+    localStorage.setItem('is_pro_member', isPro.toString());
+  }, [isPro]);
+
+  const checkAccess = () => {
+    if (!isPro && usageCount >= 3) {
+      setShowPaywall(true);
+      return false;
+    }
+    return true;
+  };
+
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!checkAccess()) return;
+
     const files = e.target.files;
     if (!files) return;
 
@@ -64,6 +96,7 @@ export default function App() {
     });
 
     setPages((prev) => [...prev, ...newPages]);
+    setUsageCount(prev => prev + 1);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -79,6 +112,7 @@ export default function App() {
 
   const generatePDF = async () => {
     if (pages.length === 0) return;
+    if (!checkAccess()) return;
 
     setIsGenerating(true);
     setError(null);
@@ -107,6 +141,7 @@ export default function App() {
       }
 
       pdf.save(`scan_${new Date().getTime()}.pdf`);
+      setUsageCount(prev => prev + 1);
     } catch (err) {
       console.error(err);
       setError('Failed to generate PDF. Please try again.');
@@ -115,18 +150,26 @@ export default function App() {
     }
   };
 
-  const analyzeContext = async () => {
+  const runAITool = async (mode: ToolMode) => {
     if (pages.length === 0) return;
+    if (!checkAccess()) return;
     
     setIsAnalyzing(true);
     setAnalysis(null);
     setError(null);
 
     try {
-      // Analyze only the first page for brevity in demo
       const firstPage = pages[0];
       const base64Data = await fileToBase64(firstPage.file);
       const base64String = base64Data.split(',')[1];
+
+      const prompts: Record<ToolMode, string> = {
+        pdf: "Analyze this document image. Extract title and summary.",
+        sum: "Extract all numbers from this image and calculate their sum. Show the line items and the final total.",
+        text: "Extract ALL text from this image exactly as written. Preserve layout if possible.",
+        count: "Identify and count all distinct objects in this image. List them with counts.",
+        measure: "Estimate the dimensions of the main object in this image in inches, feet, and centimeters. Use common reference objects in the scene to guide your estimation."
+      };
 
       const ai = getAI();
       const result = await ai.models.generateContent({
@@ -134,7 +177,7 @@ export default function App() {
         contents: [
           {
             parts: [
-              { text: "Analyze this scanned document image. Extract the main heading, summary of content, and any key dates or names found. Format it cleanly." },
+              { text: prompts[mode] },
               {
                 inlineData: {
                   mimeType: firstPage.file.type,
@@ -146,10 +189,11 @@ export default function App() {
         ],
       });
 
-      setAnalysis(result.text || "No analysis available.");
+      setAnalysis(result.text || "No results found.");
+      setUsageCount(prev => prev + 1);
     } catch (err) {
       console.error(err);
-      setError('AI Analysis failed. Check your API key or connection.');
+      setError('AI Tool failed. Check your connection.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -174,29 +218,132 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen font-sans text-slate-50 pb-24 relative">
+    <div className="min-h-screen font-sans text-slate-50 pb-32 relative overflow-x-hidden">
       <div className="mesh-bg" />
+      
+      {/* Side Menu Drawer */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMenuOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+            />
+            <motion.div 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-[280px] glass border-r border-white/10 z-[70] p-6 shadow-2xl overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="frosted-gradient p-2 rounded-xl">
+                    <FileText className="text-white w-5 h-5" />
+                  </div>
+                  <h1 className="text-xl font-bold tracking-tight text-white uppercase tracking-widest">Master</h1>
+                </div>
+                <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-white/5 rounded-full">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4 pl-2">Vision Tools</p>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'pdf', label: 'PDF Scanner', icon: LayoutGrid },
+                      { id: 'sum', label: 'Auto Sum', icon: Calculator },
+                      { id: 'text', label: 'OCR Text', icon: Type },
+                      { id: 'count', label: 'Object Count', icon: Box },
+                      { id: 'measure', label: 'Measure', icon: Ruler },
+                    ].map((tool) => (
+                      <button
+                        key={tool.id}
+                        onClick={() => { setCurrentTool(tool.id as ToolMode); setIsMenuOpen(false); }}
+                        className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all ${
+                          currentTool === tool.id 
+                          ? 'frosted-gradient text-white shadow-lg' 
+                          : 'text-slate-400 hover:bg-white/5'
+                        }`}
+                      >
+                        <tool.icon className="w-5 h-5" />
+                        <span className="font-bold text-sm tracking-tight">{tool.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4 pl-2">Account</p>
+                  <div className="space-y-2">
+                    <button 
+                      onClick={() => { setShowPaywall(true); setIsMenuOpen(false); }}
+                      className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-slate-400 hover:bg-white/5"
+                    >
+                      <CreditCard className="w-5 h-5" />
+                      <span className="font-bold text-sm">Subscription</span>
+                    </button>
+                    <button className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-slate-400 hover:bg-white/5 opacity-50 cursor-not-allowed">
+                      <History className="w-5 h-5" />
+                      <span className="font-bold text-sm">History</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="absolute bottom-8 left-6 right-6">
+                <div className="glass border border-white/10 p-4 rounded-2xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold text-slate-400">FREE USAGE</span>
+                    <span className="text-[10px] font-bold text-indigo-400">{Math.max(0, 3 - usageCount)} / 3</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full frosted-gradient" 
+                      style={{ width: `${(Math.min(usageCount, 3) / 3) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="sticky top-0 z-50 glass border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="frosted-gradient p-2 rounded-xl">
-            <FileText className="text-white w-5 h-5" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-white uppercase tracking-widest">Scan2PDF</h1>
-        </div>
-        {pages.length > 0 && (
+        <div className="flex items-center gap-4">
           <button 
-            onClick={generatePDF}
-            disabled={isGenerating}
-            className="frosted-gradient disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all active:scale-95"
+            onClick={() => setIsMenuOpen(true)}
+            className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors"
           >
-            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {isGenerating ? 'Saving...' : 'Save PDF'}
+            <Menu className="w-6 h-6 text-white" />
           </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold tracking-tight text-white uppercase tracking-widest">
+              {currentTool === 'pdf' && 'Scanner'}
+              {currentTool === 'sum' && 'AutoSum'}
+              {currentTool === 'text' && 'OCR'}
+              {currentTool === 'count' && 'Counter'}
+              {currentTool === 'measure' && 'Measure'}
+            </h1>
+          </div>
+        </div>
+        {!isPro && (
+          <div className="text-[10px] font-bold bg-white/10 px-2 py-1 rounded-md border border-white/10 text-indigo-300">
+            {Math.max(0, 3 - usageCount)} FREE LEFT
+          </div>
         )}
       </header>
 
       <main className="max-w-md mx-auto px-6 py-8">
+        {/* Tool Selector Removed from main content */}
+
         {/* Error Display */}
         <AnimatePresence>
           {error && (
@@ -204,7 +351,7 @@ export default function App() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-700 text-sm"
+              className="mb-6 p-4 glass border border-red-500/30 rounded-2xl flex items-start gap-3 text-red-300 text-sm"
             >
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <p>{error}</p>
@@ -217,132 +364,175 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center py-20 text-center"
+            className="flex flex-col items-center justify-center py-10 text-center"
           >
             <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 glass border border-white/10">
               <Camera className="w-10 h-10 text-indigo-400" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">No scans yet</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Ready to {currentTool === 'pdf' ? 'scan' : 'analyze'}</h2>
             <p className="text-slate-400 mb-8 max-w-[280px]">
-              Upload a document or take a photo to start converting to PDF
+              {currentTool === 'pdf' && 'Convert your images to searchable PDFs'}
+              {currentTool === 'sum' && 'Capture receipts and total them automatically'}
+              {currentTool === 'text' && 'Extract text from any document instantly'}
+              {currentTool === 'count' && 'AI will identify and count items in view'}
+              {currentTool === 'measure' && 'Estimate dimensions of objects using AI'}
             </p>
             <div className="flex flex-col gap-3 w-full">
               <button 
                 onClick={() => cameraInputRef.current?.click()}
-                className="flex items-center justify-center gap-3 frosted-gradient text-white py-4 px-8 rounded-2xl font-bold text-lg active:scale-95 transition-transform"
+                className="flex items-center justify-center gap-3 frosted-gradient text-white py-4 px-8 rounded-2xl font-bold text-lg active:scale-95 transition-transform shadow-indigo-500/20 shadow-xl"
               >
                 <Camera className="w-6 h-6" />
-                Scan Document
+                Capture Photo
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center justify-center gap-3 glass text-white border border-white/10 py-4 px-8 rounded-2xl font-bold text-lg active:scale-95 transition-transform"
               >
                 <ImageIcon className="w-6 h-6" />
-                Photo Library
+                Upload Image
               </button>
             </div>
           </motion.div>
         )}
 
-        {/* Page Grid */}
-        <div className="grid grid-cols-2 gap-4">
-          <AnimatePresence>
-            {pages.map((page, index) => (
-              <motion.div 
-                key={page.id}
-                layout
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.5 }}
-                className="relative group aspect-[3/4] glass-card rounded-2xl overflow-hidden shadow-xl"
-              >
-                <img 
-                  src={page.url} 
-                  alt={`Page ${index + 1}`}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full font-mono border border-white/10">
-                  PAGE {index + 1}
-                </div>
-                <button 
-                  onClick={() => removePage(page.id)}
-                  className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-
-          {pages.length > 0 && (
-            <motion.button 
-              layout
-              onClick={() => cameraInputRef.current?.click()}
-              className="aspect-[3/4] border-2 border-dashed border-white/20 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:border-indigo-400 hover:text-indigo-400 transition-colors glass bg-white/2"
-            >
-              <Plus className="w-8 h-8 mb-2" />
-              <span className="text-xs font-bold uppercase tracking-wider">Add Page</span>
-            </motion.button>
-          )}
-        </div>
-
-        {/* AI Analysis Section */}
+        {/* Page Grid / Preview */}
         {pages.length > 0 && (
-          <div className="mt-12 group">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                <Brain className="w-4 h-4" />
-                AI Smart Scan
-              </h3>
-              {!analysis && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <AnimatePresence>
+                {pages.map((page, index) => (
+                  <motion.div 
+                    key={page.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.5 }}
+                    className="relative group aspect-[3/4] glass-card rounded-2xl overflow-hidden shadow-xl"
+                  >
+                    <img 
+                      src={page.url} 
+                      alt={`Page ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full font-mono border border-white/10">
+                      PAGE {index + 1}
+                    </div>
+                    <button 
+                      onClick={() => removePage(page.id)}
+                      className="absolute top-2 right-2 bg-red-500/80 text-white p-1.5 rounded-full transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+
+              <motion.button 
+                layout
+                onClick={() => cameraInputRef.current?.click()}
+                className="aspect-[3/4] border-2 border-dashed border-white/20 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:border-indigo-400 hover:text-indigo-400 transition-colors glass bg-white/2"
+              >
+                <Plus className="w-8 h-8 mb-2" />
+                <span className="text-xs font-bold uppercase tracking-wider">Add More</span>
+              </motion.button>
+            </div>
+
+            {/* AI Result Card */}
+            <div className="group">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <Brain className="w-4 h-4" />
+                  {currentTool === 'pdf' ? 'Document Intelligence' : 'AI Analysis'}
+                </h3>
                 <button 
-                  onClick={analyzeContext}
+                  onClick={() => runAITool(currentTool)}
                   disabled={isAnalyzing}
                   className="text-xs font-bold text-indigo-400 flex items-center gap-1 hover:underline disabled:opacity-50"
                 >
-                  {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Loader2 className="hidden" />}
-                  {isAnalyzing ? 'Analyzing...' : 'Analyze Page 1'}
+                  {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                  {isAnalyzing ? 'Analyzing...' : `Run ${currentTool}`}
                 </button>
-              )}
-            </div>
-            
-            <div className={`p-6 rounded-3xl ${analysis ? 'glass border-indigo-500/30' : 'glass border-white/10 text-slate-400'} transition-all duration-500 shadow-2xl`}>
-              {isAnalyzing ? (
-                <div className="flex flex-col items-center py-8">
-                  <div className="relative w-12 h-12 mb-4">
-                    <div className="absolute inset-0 border-4 border-indigo-400/20 rounded-full"></div>
-                    <div className="absolute inset-0 border-4 border-t-indigo-400 rounded-full animate-spin"></div>
+              </div>
+              
+              <div className={`p-6 rounded-3xl ${analysis ? 'glass border-indigo-500/30' : 'glass border-white/10 text-slate-400'} transition-all duration-500 shadow-2xl min-h-[100px]`}>
+                {isAnalyzing ? (
+                  <div className="flex flex-col items-center py-8">
+                    <Loader2 className="w-10 h-10 animate-spin text-indigo-400 mb-4" />
+                    <p className="text-sm font-medium animate-pulse">Processing vision data...</p>
                   </div>
-                  <p className="text-sm font-medium animate-pulse">Reading document...</p>
-                </div>
-              ) : analysis ? (
-                <div className="relative">
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="text-[10px] font-mono tracking-widest text-indigo-300">INTELLIGENT EXTRACTION</span>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                ) : analysis ? (
+                  <div className="relative">
+                    <div className="mb-4 flex items-center justify-between">
+                      <span className="text-[10px] font-mono tracking-widest text-indigo-300">INTELLIGENT RESULT</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
+                      {analysis}
+                    </div>
                   </div>
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
-                    {analysis}
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-xs italic leading-relaxed">
+                      Tap the tool above to analyze your capture.
+                    </p>
                   </div>
-                  <button 
-                    onClick={() => setAnalysis(null)}
-                    className="mt-6 text-xs text-indigo-300 hover:text-white underline underline-offset-4"
-                  >
-                    Clear Analysis
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-xs italic leading-relaxed">
-                    Select a page to extract text and summarize content using Gemini AI.
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* Paywall Modal */}
+      <AnimatePresence>
+        {showPaywall && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              className="bg-[#1e1b4b] glass w-full max-w-sm rounded-[40px] p-8 border border-white/10 relative overflow-hidden"
+            >
+              <button 
+                onClick={() => setShowPaywall(false)}
+                className="absolute top-6 right-6 text-slate-500 hover:text-white"
+              >
+                ✕
+              </button>
+              <div className="text-center">
+                <div className="w-16 h-16 frosted-gradient rounded-3xl flex items-center justify-center mx-auto mb-6 rotate-6 shadow-indigo-500/40 shadow-2xl">
+                  <Plus className="text-white w-8 h-8" />
+                </div>
+                <h2 className="text-3xl font-black text-white mb-2 leading-none uppercase tracking-tighter">Go Master</h2>
+                <p className="text-slate-400 text-sm mb-8">Unlimited scans, auto-summing, object counting, and precise AI measurements.</p>
+                
+                <div className="space-y-4 mb-8">
+                  <button 
+                    onClick={() => { setIsPro(true); setShowPaywall(false); }}
+                    className="w-full bg-white text-indigo-900 py-4 rounded-2xl font-black text-lg hover:bg-slate-100 transition-colors flex justify-between px-6"
+                  >
+                    <span>Yearly</span>
+                    <span>$49.99/yr</span>
+                  </button>
+                  <button 
+                    onClick={() => { setIsPro(true); setShowPaywall(false); }}
+                    className="w-full glass border border-white/20 text-white py-4 rounded-2xl font-black text-lg hover:bg-white/5 transition-colors flex justify-between px-6"
+                  >
+                    <span>Monthly</span>
+                    <span>$5.99/mo</span>
+                  </button>
+                </div>
+                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-[0.2em]">Start your 7-day free trial</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Hidden Inputs */}
       <input 
@@ -362,7 +552,7 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Bottom Nav / Actions for Mobile */}
+      {/* Bottom Actions */}
       {pages.length > 0 && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 glass border border-white/10 p-2 rounded-3xl shadow-2xl z-50">
           <button 
@@ -371,20 +561,26 @@ export default function App() {
           >
             <Camera className="w-6 h-6" />
           </button>
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="bg-white/5 text-indigo-400 p-4 rounded-2xl hover:bg-white/10 transition-colors"
-          >
-            <ImageIcon className="w-6 h-6" />
-          </button>
-          <div className="w-[1px] h-8 bg-white/10 mx-2" />
-          <button 
-            onClick={generatePDF}
-            className="frosted-gradient text-white px-8 h-14 rounded-2xl font-bold flex items-center gap-2 active:scale-95 transition-transform"
-          >
-            <Download className="w-5 h-5" />
-            Finish PDF
-          </button>
+          {currentTool === 'pdf' && (
+            <button 
+              onClick={generatePDF}
+              disabled={isGenerating}
+              className="frosted-gradient text-white px-8 h-14 rounded-2xl font-bold flex items-center gap-2 active:scale-95 transition-transform"
+            >
+              {isGenerating ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5" />}
+              Finish PDF
+            </button>
+          )}
+          {currentTool !== 'pdf' && (
+            <button 
+              onClick={() => runAITool(currentTool)}
+              disabled={isAnalyzing}
+              className="frosted-gradient text-white px-8 h-14 rounded-2xl font-bold flex items-center gap-2 active:scale-95 transition-transform"
+            >
+              {isAnalyzing ? <Loader2 className="animate-spin" /> : <Plus className="w-5 h-5 font-bold" />}
+              Run {currentTool}
+            </button>
+          )}
         </div>
       )}
     </div>
