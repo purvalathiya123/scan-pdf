@@ -24,7 +24,9 @@ import {
   Calculator,
   Type,
   Box,
-  Ruler
+  Ruler,
+  Copy,
+  Share2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -50,6 +52,34 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [currentTool, setCurrentTool] = useState<ToolMode>('pdf');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
+  const copyToClipboard = async () => {
+    if (!analysis) return;
+    try {
+      await navigator.clipboard.writeText(analysis);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy!', err);
+    }
+  };
+
+  const shareResults = async () => {
+    if (!analysis) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `ScanMaster Pro - ${currentTool.toUpperCase()} Results`,
+          text: analysis,
+        });
+      } else {
+        copyToClipboard();
+      }
+    } catch (err) {
+      console.error('Error sharing', err);
+    }
+  };
   const [usageCount, setUsageCount] = useState<number>(() => {
     const saved = localStorage.getItem('scan_usage_count');
     return saved ? parseInt(saved, 10) : 0;
@@ -215,11 +245,11 @@ export default function App() {
       const base64String = base64Data.split(',')[1];
 
       const prompts: Record<ToolMode, string> = {
-        pdf: "Analyze this document image. Extract title and summary.",
-        sum: "Extract all numbers from this image and calculate their sum. Show the line items and the final total.",
-        text: "Extract ALL text from this image exactly as written. Preserve layout if possible.",
-        count: "Identify and count all distinct objects in this image. List them with counts.",
-        measure: "Estimate the dimensions of the main object in this image in inches, feet, and centimeters. Use common reference objects in the scene to guide your estimation."
+        pdf: "Analyze this document image. Identify the document type, extract the title, and provide a 3-sentence executive summary.",
+        sum: "Precision Summation: Extract every single numeric value or price from this image. Show a detailed list of items found and calculate the absolute total sum at the bottom. Return in a clean table format.",
+        text: "Professional OCR: Extract ALL text from this image exactly as it appears. Preserve the structural alignment of the document. Distinguish between heading, sub-headings, and body paragraphs. If there are tables, represent them as Markdown tables.",
+        count: "Inventory Audit: Identify, categorize, and count every distinct object in this image. List them with their corresponding quantities. Note any visible labels or distinguishing features for each group.",
+        measure: "Precision Measurement Calculation: Estimate the length, width, and height of the main objects in this image using standard units (cm, inches, feet). Additionally, calculate the approximate surface area and volume where applicable. Use visible reference objects (like a hand, phone, or credit card) to calibrate the scale."
       };
 
       const ai = getAI();
@@ -515,12 +545,39 @@ export default function App() {
                 ) : analysis ? (
                   <div className="relative">
                     <div className="mb-4 flex items-center justify-between">
-                      <span className="text-[10px] font-mono tracking-widest text-indigo-300">INTELLIGENT RESULT</span>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono tracking-widest text-indigo-300 uppercase">Intelligent Result</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={copyToClipboard}
+                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-white"
+                          title="Copy to clipboard"
+                        >
+                          {isCopied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                        <button 
+                          onClick={shareResults}
+                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-white"
+                          title="Share results"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium markdown-body">
                       {analysis}
                     </div>
+                    {isCopied && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="absolute -top-12 left-1/2 -translate-x-1/2 bg-emerald-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg"
+                      >
+                        COPIED!
+                      </motion.div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-4">
